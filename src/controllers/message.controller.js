@@ -54,7 +54,7 @@ export async function sendPrivateMessage(req, res) {
         } else {
             console.log('فرستنده پیدا نشد یا socketId ندارد');
         }
-        res.json({ success: true });
+        res.json({ success: true, messageId: newMessage._id });
     } catch (err) {
         console.error('خطا در ارسال پیام خصوصی:', err);
         res.status(500).json({ error: 'خطا در ارسال پیام خصوصی.' });
@@ -84,7 +84,7 @@ export async function sendGroupMessage(req, res) {
             forwardedFrom: newMessage.forwardedFrom,
             type: 'group',
         });
-        res.json({ success: true });
+        res.json({ success: true, messageId: newMessage._id });
     } catch (err) {
         res.status(500).json({ error: 'خطا در ارسال پیام گروهی.' });
     }
@@ -119,7 +119,7 @@ export async function sendChannelMessage(req, res) {
             forwardedFrom: newMessage.forwardedFrom,
             type: 'channel',
         });
-        res.json({ success: true });
+        res.json({ success: true, messageId: newMessage._id });
     } catch (err) {
         res.status(500).json({ error: 'خطا در ارسال پیام کانال.' });
     }

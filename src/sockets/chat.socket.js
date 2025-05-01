@@ -163,7 +163,12 @@ export default function chatSocket(io) {
                 io.to('group-chat').emit('group-message', {
                     from: fromUsername,
                     message: newMessage.content,
-                    timestamp: newMessage.timestamp
+                    timestamp: newMessage.timestamp,
+                    _id: newMessage._id,
+                    replyTo: newMessage.replyTo,
+                    forwardedFrom: newMessage.forwardedFrom,
+                    type: 'group',
+                    likes: newMessage.likes || [],
                 });
             } catch (err) {
                 socket.emit('message-error', 'خطا در ارسال پیام گروهی.');
@@ -194,7 +199,12 @@ export default function chatSocket(io) {
                     from: senderUser.username,
                     channel: channelName,
                     message: newMessage.content,
-                    timestamp: newMessage.timestamp
+                    timestamp: newMessage.timestamp,
+                    _id: newMessage._id,
+                    replyTo: newMessage.replyTo,
+                    forwardedFrom: newMessage.forwardedFrom,
+                    type: 'channel',
+                    likes: newMessage.likes || [],
                 });
             } catch (err) {
                 socket.emit('message-error', 'خطا در ارسال پیام کانال.');
