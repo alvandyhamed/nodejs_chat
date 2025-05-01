@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ورود به چت</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="login-box">
+        <h1>به چت روم خوش آمدید</h1>
+        <input type="text" id="usernameInput" placeholder="نام کاربری (A, B یا C)">
+        <button onclick="joinChat()">ورود</button>
+        <p id="error" class="error"></p>
+    </div>
+
+    <script>
+        function joinChat() {
+            const username = document.getElementById('usernameInput').value.trim();
+            const errorElement = document.getElementById('error');
+            
+            if (['A', 'B', 'C'].includes(username)) {
+                localStorage.setItem('username', username);
+                window.location.href = '/chat.html';
+            } else {
+                errorElement.textContent = 'نام کاربری معتبر نیست!';
+            }
+        }
+    </script>
+</body>
+</html>

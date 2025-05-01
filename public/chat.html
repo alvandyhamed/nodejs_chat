@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>چت</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('private')">چت خصوصی</button>
+            <button class="tab" onclick="switchTab('group')">چت گروهی</button>
+            <button class="tab" onclick="switchTab('channel')">کانال</button>
+        </div>
+
+        <div class="online-users">
+            <h3>کاربران آنلاین (<span id="onlineCount">0</span>)</h3>
+            <ul id="onlineUsers"></ul>
+        </div>
+
+        <div id="privateChat" class="tab-content active">
+            <div class="messages" id="privateMessages"></div>
+            <div class="input-box">
+                <select id="privateRecipient"></select>
+                <input type="text" id="privateInput" placeholder="پیام خصوصی...">
+                <button onclick="sendPrivateMessage()">ارسال</button>
+            </div>
+        </div>
+
+        <div id="groupChat" class="tab-content">
+            <div class="messages" id="groupMessages"></div>
+            <div class="input-box">
+                <input type="text" id="groupInput" placeholder="پیام گروهی...">
+                <button onclick="sendGroupMessage()">ارسال</button>
+            </div>
+        </div>
+
+        <div id="channel" class="tab-content">
+            <div id="channelAdminPanel"></div>
+            <div id="channelList" class="channel-list"></div>
+            <div class="messages" id="channelMessages"></div>
+            <div class="input-box">
+                <input type="text" id="channelInput" placeholder="پیام خود را بنویسید...">
+                <button id="channelButton" onclick="sendChannelMessage()">ارسال</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io('http://localhost:3000');
+        const username = localStorage.getItem('username');
+        let privateChatHistory = {}; // {username: [msgHtml, ...]}
+        let groupChatHistory = [];
+        let channelChatHistory = {}; // {channelName: [msgHtml, ...]}
+        let currentRecipient = null;
+        let currentChannel = null;
+        let allUsers = [];
+        let userChannels = [];
+
+        // اعتبارسنجی اولیه
+        if (!username || username.trim() === '') {
+            alert('دسترسی غیرمجاز!');
+            window.location.href = '/';
+        }
+
+        // مدیریت تب‌ها
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            if(tabName === 'private') document.getElementById('privateChat')?.classList.add('active');
+            if(tabName === 'group') document.getElementById('groupChat')?.classList.add('active');
+            if(tabName === 'channel') document.getElementById('channel')?.classList.add('active');
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`)?.classList.add('active');
+        }
+
+        // دریافت لیست کاربران آنلاین و آفلاین
+        socket.on('all-users', users => {
+            allUsers = users;
+            const onlineUsers = users.filter(u => u.isOnline && u.username !== username);
+            const offlineUsers = users.filter(u => !u.isOnline && u.username !== username);
+            // نمایش کاربران آنلاین
+            document.getElementById('onlineUsers').innerHTML = onlineUsers
+                .map(user => `<li onclick="selectRecipient('${user.username}')">${user.username}</li>`)
+                .join('');
+            // نمایش تعداد آنلاین
+            document.getElementById('onlineCount').textContent = onlineUsers.length;
+            // نمایش کاربران آفلاین (در صورت نیاز می‌توانید یک لیست جدا اضافه کنید)
+            // ...
+            // به‌روزرسانی انتخاب‌گر دریافت‌کننده چت خصوصی
+            const recipientSelect = document.getElementById('privateRecipient');
+            recipientSelect.innerHTML = `
+                <option value="">انتخاب کاربر...</option>
+                ${onlineUsers.map(user => `<option value="${user.username}">${user.username}</option>`).join('')}
+            `;
+            renderChannelAdminPanel();
+        });
+
+        // دریافت تاریخچه چت
+        socket.on('chat-history', messages => {
+            // پاک‌سازی تاریخچه‌ها
+            privateChatHistory = {};
+            groupChatHistory = [];
+            channelChatHistory = {};
+            // دسته‌بندی پیام‌ها
+            messages.forEach(msg => {
+                if (msg.type === 'private') {
+                    const other = msg.from === username ? msg.to : msg.from;
+                    if (!privateChatHistory[other]) privateChatHistory[other] = [];
+                    privateChatHistory[other].push(
+                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
+                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
+                            <div class="text">${msg.content}</div>
+                        </div>`
+                    );
+                } else if (msg.type === 'group') {
+                    groupChatHistory.push(
+                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
+                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
+                            <div class="text">${msg.content}</div>
+                        </div>`
+                    );
+                } else if (msg.type === 'channel') {
+                    if (!channelChatHistory[msg.to]) channelChatHistory[msg.to] = [];
+                    channelChatHistory[msg.to].push(
+                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
+                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
+                            <div class="text">${msg.content}</div>
+                        </div>`
+                    );
+                }
+            });
+            // نمایش تاریخچه فعلی (در صورت انتخاب)
+            showPrivateChatHistory();
+            showGroupChatHistory();
+            showChannelChatHistory();
+        });
+
+        // نمایش تاریخچه چت خصوصی
+        function showPrivateChatHistory() {
+            const messagesDiv = document.getElementById('privateMessages');
+            messagesDiv.innerHTML = privateChatHistory[currentRecipient]?.join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        // نمایش تاریخچه گروهی
+        function showGroupChatHistory() {
+            const messagesDiv = document.getElementById('groupMessages');
+            messagesDiv.innerHTML = groupChatHistory.join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        // نمایش تاریخچه کانال (فعلاً فقط یک کانال)
+        function showChannelChatHistory() {
+            const messagesDiv = document.getElementById('channelMessages');
+            // اگر چند کانال داشتیم، باید currentChannel را مدیریت کنیم
+            messagesDiv.innerHTML = channelChatHistory[currentChannel]?.join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // انتخاب دریافت‌کننده چت خصوصی
+        window.selectRecipient = (recipient) => {
+            currentRecipient = recipient;
+            document.getElementById('privateRecipient').value = recipient;
+            showPrivateChatHistory();
+        };
+        document.getElementById('privateRecipient').addEventListener('change', function() {
+            currentRecipient = this.value;
+            showPrivateChatHistory();
+        });
+
+        // ارسال پیام خصوصی
+        window.sendPrivateMessage = () => {
+            const recipient = document.getElementById('privateRecipient').value;
+            const message = document.getElementById('privateInput').value.trim();
+            if (!recipient) return alert('کاربر را انتخاب کنید!');
+            if (!message) return;
+            socket.emit('private-message', { to: recipient, message });
+            document.getElementById('privateInput').value = '';
+        };
+
+        // دریافت پیام خصوصی زنده
+        socket.on('private-message', data => {
+            if (data.from !== username) {
+                alert(`پیام خصوصی از ${data.from}:\n${data.message}`);
+            }
+            // اگر پیام از خود کاربر بود، باید در آرایه گیرنده ذخیره شود
+            const key = data.from === username ? currentRecipient : data.from;
+            if (!privateChatHistory[key]) privateChatHistory[key] = [];
+            privateChatHistory[key].push(
+                `<div class="message ${data.from === username ? 'my-message' : ''}">
+                    <span class="sender">${data.from === username ? 'شما' : data.from}:</span>
+                    <div class="text">${data.message}</div>
+                </div>`
+            );
+            if (currentRecipient === key) showPrivateChatHistory();
+        });
+
+        // ارسال پیام گروهی
+        window.sendGroupMessage = () => {
+            const message = document.getElementById('groupInput').value.trim();
+            if (!message) return;
+            socket.emit('group-message', message);
+            document.getElementById('groupInput').value = '';
+        };
+        // دریافت پیام گروهی زنده
+        socket.on('group-message', data => {
+            if (data.from !== username) {
+                alert(`پیام گروهی از ${data.from}:\n${data.message}`);
+            }
+            groupChatHistory.push(
+                `<div class="message ${data.from === username ? 'my-message' : ''}">
+                    <span class="sender">${data.from}:</span>
+                    <div class="text">${data.message}</div>
+                </div>`
+            );
+            showGroupChatHistory();
+        });
+
+        // دریافت لیست کانال‌های کاربر
+        socket.on('user-channels', channels => {
+            userChannels = channels;
+            const channelListDiv = document.getElementById('channelList');
+            if (!channels.length) {
+                channelListDiv.innerHTML = '<div class="no-channel">شما در هیچ کانالی عضو نیستید.</div>';
+                currentChannel = null;
+                showChannelChatHistory();
+                document.getElementById('channelInput').disabled = true;
+                document.getElementById('channelButton').disabled = true;
+                return;
+            }
+            channelListDiv.innerHTML = channels.map(c =>
+                `<button class="channel-item${currentChannel === c.name ? ' active' : ''}" onclick="selectChannel('${c.name}')">${c.name}</button>`
+            ).join(' ');
+            // اگر کانال فعال نداریم، اولین کانال را انتخاب کن
+            if (!currentChannel || !channels.some(c => c.name === currentChannel)) {
+                selectChannel(channels[0].name);
+            }
+            renderChannelAdminPanel();
+        });
+        // انتخاب کانال فعال
+        window.selectChannel = (channelName) => {
+            currentChannel = channelName;
+            // به‌روزرسانی دکمه‌های لیست کانال
+            const channelListDiv = document.getElementById('channelList');
+            if (userChannels.length) {
+                channelListDiv.innerHTML = userChannels.map(c =>
+                    `<button class="channel-item${currentChannel === c.name ? ' active' : ''}" onclick="selectChannel('${c.name}')">${c.name}</button>`
+                ).join(' ');
+            }
+            // فعال/غیرفعال کردن ورودی و دکمه ارسال بر اساس دسترسی (فقط A می‌تواند پیام بفرستد)
+            const isAdmin = username === 'A';
+            document.getElementById('channelInput').disabled = !isAdmin;
+            document.getElementById('channelButton').disabled = !isAdmin;
+            showChannelChatHistory();
+        };
+
+        // ارسال پیام کانال (فقط توسط A)
+        window.sendChannelMessage = () => {
+            const message = document.getElementById('channelInput').value.trim();
+            if (!message || !currentChannel) return;
+            socket.emit('channel-message', { channelName: currentChannel, message });
+            document.getElementById('channelInput').value = '';
+        };
+        // دریافت پیام کانال زنده
+        socket.on('channel-message', data => {
+            if (data.from !== username) {
+                alert(`پیام کانال از ${data.from} (${data.channel}):\n${data.message}`);
+            }
+            if (!channelChatHistory[data.channel]) channelChatHistory[data.channel] = [];
+            channelChatHistory[data.channel].push(
+                `<div class="message ${data.from === username ? 'my-message' : ''}">
+                    <span class="sender">${data.from}:</span>
+                    <div class="text">${data.message}</div>
+                </div>`
+            );
+            if (currentChannel === data.channel) showChannelChatHistory();
+        });
+
+        // نمایش فرم ساخت کانال و افزودن کاربر فقط برای کاربر A
+        function renderChannelAdminPanel() {
+            const panel = document.getElementById('channelAdminPanel');
+            if (username !== 'A') {
+                panel.innerHTML = '';
+                return;
+            }
+            panel.innerHTML = `
+                <div class="admin-panel">
+                    <form id="createChannelForm" onsubmit="createChannel(event)">
+                        <input type="text" id="newChannelName" placeholder="نام کانال جدید" required>
+                        <button type="submit">ایجاد کانال</button>
+                    </form>
+                    <form id="addUserToChannelForm" onsubmit="addUserToChannel(event)">
+                        <select id="selectChannelForAdd" required>
+                            <option value="">انتخاب کانال...</option>
+                            ${userChannels.map(c => `<option value="${c.name}">${c.name}</option>`).join('')}
+                        </select>
+                        <select id="selectUserForAdd" required>
+                            <option value="">انتخاب کاربر...</option>
+                            ${allUsers.filter(u => u.username !== 'A').map(u => `<option value="${u.username}">${u.username}</option>`).join('')}
+                        </select>
+                        <button type="submit">افزودن کاربر</button>
+                    </form>
+                    <div id="channelAdminMsg" class="admin-msg"></div>
+                </div>
+            `;
+        }
+        // ساخت کانال
+        window.createChannel = function(e) {
+            e.preventDefault();
+            const name = document.getElementById('newChannelName').value.trim();
+            if (!name) return;
+            socket.emit('create-channel', name);
+        }
+        // افزودن کاربر به کانال
+        window.addUserToChannel = function(e) {
+            e.preventDefault();
+            const channelName = document.getElementById('selectChannelForAdd').value;
+            const usernameToAdd = document.getElementById('selectUserForAdd').value;
+            if (!channelName || !usernameToAdd) return;
+            socket.emit('add-user-to-channel', { channelName, usernameToAdd });
+        }
+        // مدیریت پیام‌های موفقیت/خطا
+        socket.on('channel-created', channel => {
+            document.getElementById('channelAdminMsg').textContent = `کانال «${channel.name}» با موفقیت ایجاد شد.`;
+            document.getElementById('newChannelName').value = '';
+        });
+        socket.on('user-added-to-channel', data => {
+            document.getElementById('channelAdminMsg').textContent = `کاربر «${data.username}» به کانال «${data.channelName}» اضافه شد.`;
+        });
+        socket.on('channel-error', msg => {
+            document.getElementById('channelAdminMsg').textContent = msg;
+        });
+        // اگر کاربر به کانال جدید اضافه شد
+        socket.on('added-to-channel', data => {
+            // پیام اطلاع‌رسانی ساده
+            alert(`شما به کانال «${data.channelName}» توسط ${data.addedBy} اضافه شدید.`);
+        });
+
+        // اتصال اولیه به چت
+        socket.emit('join-chat', username);
+
+        // TODO: مدیریت ساخت کانال و افزودن کاربر به کانال برای کاربر A
+        // TODO: نمایش لیست کانال‌ها و انتخاب کانال فعال
+        // TODO: مدیریت رویدادهای channel-created, added-to-channel, channel-error و ...
+    </script>
+</body>
+</html>
