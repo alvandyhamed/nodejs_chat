@@ -166,14 +166,24 @@
             showPrivateChatHistory();
         });
 
-        // ارسال پیام خصوصی
-        window.sendPrivateMessage = () => {
+        // ارسال پیام خصوصی با API
+        window.sendPrivateMessage = async () => {
             const recipient = document.getElementById('privateRecipient').value;
             const message = document.getElementById('privateInput').value.trim();
             if (!recipient) return alert('کاربر را انتخاب کنید!');
             if (!message) return;
-            socket.emit('private-message', { to: recipient, message });
-            document.getElementById('privateInput').value = '';
+            try {
+                const res = await fetch('/api/message/private', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: username, to: recipient, message })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام خصوصی');
+                document.getElementById('privateInput').value = '';
+            } catch (err) {
+                alert('خطا در ارسال پیام خصوصی');
+            }
         };
 
         // دریافت پیام خصوصی زنده
@@ -193,12 +203,22 @@
             if (currentRecipient === key) showPrivateChatHistory();
         });
 
-        // ارسال پیام گروهی
-        window.sendGroupMessage = () => {
+        // ارسال پیام گروهی با API
+        window.sendGroupMessage = async () => {
             const message = document.getElementById('groupInput').value.trim();
             if (!message) return;
-            socket.emit('group-message', message);
-            document.getElementById('groupInput').value = '';
+            try {
+                const res = await fetch('/api/message/group', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: username, message })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام گروهی');
+                document.getElementById('groupInput').value = '';
+            } catch (err) {
+                alert('خطا در ارسال پیام گروهی');
+            }
         };
         // دریافت پیام گروهی زنده
         socket.on('group-message', data => {
@@ -252,12 +272,22 @@
             showChannelChatHistory();
         };
 
-        // ارسال پیام کانال (فقط توسط A)
-        window.sendChannelMessage = () => {
+        // ارسال پیام کانال با API
+        window.sendChannelMessage = async () => {
             const message = document.getElementById('channelInput').value.trim();
             if (!message || !currentChannel) return;
-            socket.emit('channel-message', { channelName: currentChannel, message });
-            document.getElementById('channelInput').value = '';
+            try {
+                const res = await fetch('/api/message/channel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: username, channelName: currentChannel, message })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام کانال');
+                document.getElementById('channelInput').value = '';
+            } catch (err) {
+                alert('خطا در ارسال پیام کانال');
+            }
         };
         // دریافت پیام کانال زنده
         socket.on('channel-message', data => {

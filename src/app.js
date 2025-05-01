@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/db.js';
 import chatSocket from './sockets/chat.socket.js';
+import apiRoutes from './routes/api.routes.js';
+import { setIO } from './config/socket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +26,14 @@ connectDB();
 // فایل‌های استاتیک
 app.use(express.static(path.join(__dirname, '../public')));
 
+// پارس کردن json
+app.use(express.json());
+
+// روت‌های API
+app.use('/api', apiRoutes);
+
 // راه‌اندازی سوکت
 chatSocket(io);
+setIO(io);
 
 export { app, server };
