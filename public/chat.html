@@ -87,13 +87,12 @@
                 .join('');
             // نمایش تعداد آنلاین
             document.getElementById('onlineCount').textContent = onlineUsers.length;
-            // نمایش کاربران آفلاین (در صورت نیاز می‌توانید یک لیست جدا اضافه کنید)
-            // ...
-            // به‌روزرسانی انتخاب‌گر دریافت‌کننده چت خصوصی
+            // به‌روزرسانی انتخاب‌گر دریافت‌کننده چت خصوصی (همه کاربران)
             const recipientSelect = document.getElementById('privateRecipient');
             recipientSelect.innerHTML = `
                 <option value="">انتخاب کاربر...</option>
-                ${onlineUsers.map(user => `<option value="${user.username}">${user.username}</option>`).join('')}
+                ${onlineUsers.map(user => `<option value="${user.username}">🟢 ${user.username}</option>`).join('')}
+                ${offlineUsers.map(user => `<option value="${user.username}">⚪️ ${user.username}</option>`).join('')}
             `;
             renderChannelAdminPanel();
         });
@@ -152,6 +151,7 @@
             const sender = msg.from || 'نامشخص';
             const text = msg.message || msg.content || '';
             const id = msg._id || msg.id || '';
+            let status = msg.status || 'sent';
             if (!id) {
                 console.warn('پیام بدون id:', msg);
             }
@@ -194,13 +194,25 @@
                     </div>
                 `;
             }
+            // تیک پیام فقط برای پیام‌های خصوصی و فقط برای پیام‌های خود کاربر
+            let tickHtml = '';
+            if (contextType === 'private' && msg.from === username) {
+                console.log('buildMessageHtml', msg._id || msg.id, status);
+                if (status === 'read') {
+                    tickHtml = '<span style="color:#2196f3; font-size:16px; margin-right:4px;">✔✔</span>';
+                } else if (status === 'delivered') {
+                    tickHtml = '<span style="color:#888; font-size:16px; margin-right:4px;">✔✔</span>';
+                } else {
+                    tickHtml = '<span style="color:#888; font-size:16px; margin-right:4px;">✔</span>';
+                }
+            }
             return `
                 <div class="message ${sender === username ? 'my-message' : ''}">
                     ${replyHtml}
                     ${forwardHtml}
                     <span class="sender">${sender === username ? 'شما' : sender}:</span>
                     <div class="text">${text}</div>
-                    <div class="msg-actions">${replyBtn} ${forwardBtn} ${likeBtn}</div>
+                    <div class="msg-actions">${replyBtn} ${forwardBtn} ${likeBtn} ${tickHtml}</div>
                     ${replyBox}
                     ${forwardBox}
                 </div>
@@ -289,10 +301,28 @@
         window.selectRecipient = (recipient) => {
             currentRecipient = recipient;
             document.getElementById('privateRecipient').value = recipient;
+            // ارسال رویداد خواندن پیام به سوکت
+            socket.emit('read-private-messages', { from: recipient, to: username });
             showPrivateChatHistory();
         };
         document.getElementById('privateRecipient').addEventListener('change', function() {
             currentRecipient = this.value;
+            // ارسال رویداد خواندن پیام به سوکت
+            socket.emit('read-private-messages', { from: this.value, to: username });
+            showPrivateChatHistory();
+        });
+
+        // دریافت رویداد تغییر وضعیت پیام خصوصی (تیک)
+        socket.on('private-message-status', ({ messageId, status }) => {
+            // پیام را در همه آرایه‌های privateChatHistory پیدا و status را آپدیت کن
+            Object.values(privateChatHistory).forEach(arr => {
+                arr.forEach(msg => {
+                    if ((msg._id || msg.id) === messageId) {
+                        msg.status = status;
+                        console.log('private-message-status update:', messageId, status);
+                    }
+                });
+            });
             showPrivateChatHistory();
         });
 

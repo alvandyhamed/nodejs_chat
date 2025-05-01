@@ -27,6 +27,23 @@ export default function chatSocket(io) {
                 });
                 socket.emit('user-channels', userChannels);
                 await emitAllUsers(io);
+                const undelivered = await Message.find({
+                    to: user.username,
+                    type: 'private',
+                    status: 'sent'
+                });
+                for (const msg of undelivered) {
+                    msg.status = 'delivered';
+                    await msg.save();
+                    console.log('join-chat delivered:', msg._id.toString(), msg.status);
+                    const senderUser = await User.findOne({ username: msg.from });
+                    if (senderUser && senderUser.socketId) {
+                        io.to(senderUser.socketId).emit('private-message-status', {
+                            messageId: msg._id,
+                            status: 'delivered'
+                        });
+                    }
+                }
                 const historyMessages = await Message.find({
                     $or: [
                         { type: 'private', to: user.username },
@@ -45,6 +62,7 @@ export default function chatSocket(io) {
                     type: msg.type || '',
                     to: msg.to || '',
                     timestamp: msg.timestamp || '',
+                    status: msg.status || 'sent',
                 }));
                 console.log('chat-history to', user.username, fixedHistory);
                 socket.emit('chat-history', fixedHistory);
@@ -60,26 +78,35 @@ export default function chatSocket(io) {
                 const senderUser = await User.findOne({ socketId: socket.id });
                 if (!senderUser) return;
                 const fromUsername = senderUser.username;
+                const recipientUser = await User.findOne({ username: to });
+                let status = 'sent';
+                if (recipientUser && recipientUser.isOnline && recipientUser.socketId) {
+                    status = 'delivered';
+                }
                 const newMessage = new Message({
                     from: fromUsername,
                     to: to,
                     type: 'private',
                     content: message.trim(),
+                    status
                 });
                 await newMessage.save();
-                const recipientUser = await User.findOne({ username: to });
                 if (recipientUser && recipientUser.isOnline && recipientUser.socketId) {
                     io.to(recipientUser.socketId).emit('private-message', {
                         from: fromUsername,
                         message: newMessage.content,
-                        timestamp: newMessage.timestamp
+                        timestamp: newMessage.timestamp,
+                        _id: newMessage._id,
+                        status: newMessage.status
                     });
-                }
-                if (senderUser && senderUser.socketId) {
-                    io.to(senderUser.socketId).emit('private-message', {
-                        from: fromUsername,
-                        message: newMessage.content,
-                        timestamp: newMessage.timestamp
+                    io.to(senderUser.socketId).emit('private-message-status', {
+                        messageId: newMessage._id,
+                        status: 'delivered'
+                    });
+                } else {
+                    io.to(senderUser.socketId).emit('private-message-status', {
+                        messageId: newMessage._id,
+                        status: 'sent'
                     });
                 }
             } catch (err) {
@@ -208,6 +235,27 @@ export default function chatSocket(io) {
                 });
             } catch (err) {
                 socket.emit('message-error', 'خطا در ارسال پیام کانال.');
+            }
+        });
+
+        socket.on('read-private-messages', async ({ from, to }) => {
+            if (!from || !to) return;
+            try {
+                const unreadMsgs = await Message.find({ from, to, type: 'private', status: 'delivered' });
+                for (const msg of unreadMsgs) {
+                    msg.status = 'read';
+                    await msg.save();
+                    console.log('read-private-messages read:', msg._id.toString(), msg.status);
+                    const senderUser = await User.findOne({ username: from });
+                    if (senderUser && senderUser.socketId) {
+                        io.to(senderUser.socketId).emit('private-message-status', {
+                            messageId: msg._id,
+                            status: 'read'
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Error in read-private-messages:', err);
             }
         });
 

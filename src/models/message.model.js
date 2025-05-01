@@ -10,6 +10,7 @@ const messageSchema = new mongoose.Schema({
     forwardedFrom: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', default: null },
     likes: [{ type: String }], // usernames who liked
     // readBy: [{ type: String }]
+    status: { type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' },
 });
 
 const Message = mongoose.model('Message', messageSchema);
