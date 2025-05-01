@@ -56,6 +56,9 @@
         let currentChannel = null;
         let allUsers = [];
         let userChannels = [];
+        let replyToMessageId = null;
+        let forwardFromMessageId = null;
+        let forwardTarget = null; // {type: 'private'|'group'|'channel', to: ...}
 
         // اعتبارسنجی اولیه
         if (!username || username.trim() === '') {
@@ -106,27 +109,12 @@
                 if (msg.type === 'private') {
                     const other = msg.from === username ? msg.to : msg.from;
                     if (!privateChatHistory[other]) privateChatHistory[other] = [];
-                    privateChatHistory[other].push(
-                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
-                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
-                            <div class="text">${msg.content}</div>
-                        </div>`
-                    );
+                    privateChatHistory[other].push(msg); // فقط آبجکت پیام را ذخیره کن
                 } else if (msg.type === 'group') {
-                    groupChatHistory.push(
-                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
-                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
-                            <div class="text">${msg.content}</div>
-                        </div>`
-                    );
+                    groupChatHistory.push(msg);
                 } else if (msg.type === 'channel') {
                     if (!channelChatHistory[msg.to]) channelChatHistory[msg.to] = [];
-                    channelChatHistory[msg.to].push(
-                        `<div class="message ${msg.from === username ? 'my-message' : ''}">
-                            <span class="sender">${msg.from === username ? 'شما' : msg.from}:</span>
-                            <div class="text">${msg.content}</div>
-                        </div>`
-                    );
+                    channelChatHistory[msg.to].push(msg);
                 }
             });
             // نمایش تاریخچه فعلی (در صورت انتخاب)
@@ -135,107 +123,9 @@
             showChannelChatHistory();
         });
 
-        // نمایش تاریخچه چت خصوصی
-        function showPrivateChatHistory() {
-            const messagesDiv = document.getElementById('privateMessages');
-            messagesDiv.innerHTML = privateChatHistory[currentRecipient]?.join('') || 'هیچ پیامی موجود نیست.';
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-        // نمایش تاریخچه گروهی
-        function showGroupChatHistory() {
-            const messagesDiv = document.getElementById('groupMessages');
-            messagesDiv.innerHTML = groupChatHistory.join('') || 'هیچ پیامی موجود نیست.';
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-        // نمایش تاریخچه کانال (فعلاً فقط یک کانال)
-        function showChannelChatHistory() {
-            const messagesDiv = document.getElementById('channelMessages');
-            // اگر چند کانال داشتیم، باید currentChannel را مدیریت کنیم
-            messagesDiv.innerHTML = channelChatHistory[currentChannel]?.join('') || 'هیچ پیامی موجود نیست.';
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-
-        // انتخاب دریافت‌کننده چت خصوصی
-        window.selectRecipient = (recipient) => {
-            currentRecipient = recipient;
-            document.getElementById('privateRecipient').value = recipient;
-            showPrivateChatHistory();
-        };
-        document.getElementById('privateRecipient').addEventListener('change', function() {
-            currentRecipient = this.value;
-            showPrivateChatHistory();
-        });
-
-        // ارسال پیام خصوصی با API
-        window.sendPrivateMessage = async () => {
-            const recipient = document.getElementById('privateRecipient').value;
-            const message = document.getElementById('privateInput').value.trim();
-            if (!recipient) return alert('کاربر را انتخاب کنید!');
-            if (!message) return;
-            try {
-                const res = await fetch('/api/message/private', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ from: username, to: recipient, message })
-                });
-                const data = await res.json();
-                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام خصوصی');
-                document.getElementById('privateInput').value = '';
-            } catch (err) {
-                alert('خطا در ارسال پیام خصوصی');
-            }
-        };
-
-        // دریافت پیام خصوصی زنده
-        socket.on('private-message', data => {
-            if (data.from !== username) {
-                alert(`پیام خصوصی از ${data.from}:\n${data.message}`);
-            }
-            // اگر پیام از خود کاربر بود، باید در آرایه گیرنده ذخیره شود
-            const key = data.from === username ? currentRecipient : data.from;
-            if (!privateChatHistory[key]) privateChatHistory[key] = [];
-            privateChatHistory[key].push(
-                `<div class="message ${data.from === username ? 'my-message' : ''}">
-                    <span class="sender">${data.from === username ? 'شما' : data.from}:</span>
-                    <div class="text">${data.message}</div>
-                </div>`
-            );
-            if (currentRecipient === key) showPrivateChatHistory();
-        });
-
-        // ارسال پیام گروهی با API
-        window.sendGroupMessage = async () => {
-            const message = document.getElementById('groupInput').value.trim();
-            if (!message) return;
-            try {
-                const res = await fetch('/api/message/group', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ from: username, message })
-                });
-                const data = await res.json();
-                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام گروهی');
-                document.getElementById('groupInput').value = '';
-            } catch (err) {
-                alert('خطا در ارسال پیام گروهی');
-            }
-        };
-        // دریافت پیام گروهی زنده
-        socket.on('group-message', data => {
-            if (data.from !== username) {
-                alert(`پیام گروهی از ${data.from}:\n${data.message}`);
-            }
-            groupChatHistory.push(
-                `<div class="message ${data.from === username ? 'my-message' : ''}">
-                    <span class="sender">${data.from}:</span>
-                    <div class="text">${data.message}</div>
-                </div>`
-            );
-            showGroupChatHistory();
-        });
-
         // دریافت لیست کانال‌های کاربر
         socket.on('user-channels', channels => {
+            console.log('user-channels:', channels);
             userChannels = channels;
             const channelListDiv = document.getElementById('channelList');
             if (!channels.length) {
@@ -255,24 +145,226 @@
             }
             renderChannelAdminPanel();
         });
-        // انتخاب کانال فعال
-        window.selectChannel = (channelName) => {
-            currentChannel = channelName;
-            // به‌روزرسانی دکمه‌های لیست کانال
-            const channelListDiv = document.getElementById('channelList');
-            if (userChannels.length) {
-                channelListDiv.innerHTML = userChannels.map(c =>
-                    `<button class="channel-item${currentChannel === c.name ? ' active' : ''}" onclick="selectChannel('${c.name}')">${c.name}</button>`
-                ).join(' ');
-            }
-            // فعال/غیرفعال کردن ورودی و دکمه ارسال بر اساس دسترسی (فقط A می‌تواند پیام بفرستد)
-            const isAdmin = username === 'A';
-            document.getElementById('channelInput').disabled = !isAdmin;
-            document.getElementById('channelButton').disabled = !isAdmin;
-            showChannelChatHistory();
-        };
 
-        // ارسال پیام کانال با API
+        // تابع ساخت HTML پیام با دکمه‌های reply/forward/like و نمایش reply/forward
+        function buildMessageHtml(msg, contextType = 'private') {
+            // مقداردهی پیش‌فرض برای فیلدها
+            const sender = msg.from || 'نامشخص';
+            const text = msg.message || msg.content || '';
+            const id = msg._id || msg.id || '';
+            if (!id) {
+                console.warn('پیام بدون id:', msg);
+            }
+            let replyHtml = '';
+            let forwardHtml = '';
+            if (msg.replyTo && msg.replyToText) {
+                replyHtml = `<div class="reply-ref">پاسخ به: <span>${msg.replyToText}</span></div>`;
+            }
+            if (msg.forwardedFrom && msg.forwardedFromText) {
+                forwardHtml = `<div class="forward-ref">فروارد از: <span>${msg.forwardedFromText}</span></div>`;
+            }
+            let likeCount = Array.isArray(msg.likes) ? msg.likes.length : 0;
+            let likeBtn = id ? `<button class="like-btn" onclick="likeMessage('${id}')">❤️ ${likeCount}</button>` : '<button class="like-btn" disabled>❤️</button>';
+            let replyBtn = id ? `<button class="reply-btn" onclick="setReply('${id}', '${contextType}')">پاسخ</button>` : '';
+            let forwardBtn = id ? `<button class="forward-btn" onclick="setForward('${id}', '${contextType}')">فروارد</button>` : '';
+            return `
+                <div class="message ${sender === username ? 'my-message' : ''}">
+                    ${replyHtml}
+                    ${forwardHtml}
+                    <span class="sender">${sender === username ? 'شما' : sender}:</span>
+                    <div class="text">${text}</div>
+                    <div class="msg-actions">${replyBtn} ${forwardBtn} ${likeBtn}</div>
+                </div>
+            `;
+        }
+
+        // نمایش تاریخچه چت خصوصی
+        function showPrivateChatHistory() {
+            const messagesDiv = document.getElementById('privateMessages');
+            const arr = privateChatHistory[currentRecipient] || [];
+            messagesDiv.innerHTML = arr.map(msg => buildMessageHtml(msg, 'private')).join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        // نمایش تاریخچه گروهی
+        function showGroupChatHistory() {
+            const messagesDiv = document.getElementById('groupMessages');
+            messagesDiv.innerHTML = groupChatHistory.map(msg => buildMessageHtml(msg, 'group')).join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        // نمایش تاریخچه کانال
+        function showChannelChatHistory() {
+            const messagesDiv = document.getElementById('channelMessages');
+            const arr = channelChatHistory[currentChannel] || [];
+            messagesDiv.innerHTML = arr.map(msg => buildMessageHtml(msg, 'channel')).join('') || 'هیچ پیامی موجود نیست.';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // انتخاب دریافت‌کننده چت خصوصی
+        window.selectRecipient = (recipient) => {
+            currentRecipient = recipient;
+            document.getElementById('privateRecipient').value = recipient;
+            showPrivateChatHistory();
+        };
+        document.getElementById('privateRecipient').addEventListener('change', function() {
+            currentRecipient = this.value;
+            showPrivateChatHistory();
+        });
+
+        // نمایش وضعیت reply/forward
+        function ensureReplyIndicator() {
+            let ind = document.getElementById('replyIndicator');
+            if (!ind) {
+                ind = document.createElement('div');
+                ind.id = 'replyIndicator';
+                ind.style.color = 'blue';
+                ind.style.margin = '5px';
+                // اضافه کردن به ابتدای chat-container
+                document.querySelector('.chat-container').prepend(ind);
+            }
+        }
+        ensureReplyIndicator();
+
+        // ست کردن reply
+        window.setReply = (msgId, contextType) => {
+            ensureReplyIndicator();
+            replyToMessageId = msgId;
+            forwardFromMessageId = null;
+            forwardTarget = null;
+            document.getElementById('replyIndicator').textContent = 'در حال پاسخ به پیام...';
+        };
+        // ست کردن forward
+        window.setForward = (msgId, contextType) => {
+            ensureReplyIndicator();
+            forwardFromMessageId = msgId;
+            replyToMessageId = null;
+            forwardTarget = { type: contextType };
+            document.getElementById('replyIndicator').textContent = 'در حال فروارد پیام...';
+        };
+        // پاک کردن حالت reply/forward
+        window.clearReplyForward = () => {
+            ensureReplyIndicator();
+            replyToMessageId = null;
+            forwardFromMessageId = null;
+            forwardTarget = null;
+            document.getElementById('replyIndicator').textContent = '';
+        };
+        // لایک پیام
+        window.likeMessage = async (msgId) => {
+            try {
+                const res = await fetch(`/api/message/${msgId}/like`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در لایک پیام');
+            } catch (err) {
+                alert('خطا در لایک پیام');
+            }
+        };
+        // دریافت رویداد لایک شدن پیام
+        socket.on('message-liked', data => {
+            // پیام مربوطه را در آرایه‌ها پیدا و لایک‌ها را به‌روزرسانی کن
+            [privateChatHistory, groupChatHistory, channelChatHistory].forEach(hist => {
+                if (Array.isArray(hist)) {
+                    hist.forEach(msg => { if (msg._id === data.messageId) msg.likes = data.likes; });
+                } else if (typeof hist === 'object') {
+                    Object.values(hist).forEach(arr => arr.forEach(msg => { if (msg._id === data.messageId) msg.likes = data.likes; }));
+                }
+            });
+            showPrivateChatHistory();
+            showGroupChatHistory();
+            showChannelChatHistory();
+        });
+
+        // دریافت پیام خصوصی زنده
+        socket.on('private-message', data => {
+            console.log('دریافت پیام خصوصی:', data);
+            if (data.from !== username) {
+                alert(`پیام خصوصی از ${data.from}:\n${data.message}`);
+            }
+            // اصلاح کلید ذخیره پیام خصوصی برای فرستنده
+            const key = data.from === username ? data.to : data.from;
+            if (!privateChatHistory[key]) privateChatHistory[key] = [];
+            const msg = enrichMessage({ ...data }, 'private');
+            privateChatHistory[key].push(msg);
+            if (currentRecipient === key) showPrivateChatHistory();
+        });
+        // دریافت پیام گروهی زنده
+        socket.on('group-message', data => {
+            console.log('دریافت پیام گروهی:', data);
+            if (data.from !== username) {
+                alert(`پیام گروهی از ${data.from}:\n${data.message}`);
+            }
+            const msg = enrichMessage({ ...data }, 'group');
+            groupChatHistory.push(msg);
+            showGroupChatHistory();
+        });
+        // دریافت پیام کانال زنده
+        socket.on('channel-message', data => {
+            console.log('دریافت پیام کانال:', data);
+            if (data.from !== username) {
+                alert(`پیام کانال از ${data.from} (${data.channel}):\n${data.message}`);
+            }
+            if (!channelChatHistory[data.channel]) channelChatHistory[data.channel] = [];
+            const msg = enrichMessage({ ...data }, 'channel');
+            channelChatHistory[data.channel].push(msg);
+            if (currentChannel === data.channel) showChannelChatHistory();
+        });
+
+        // ارسال پیام خصوصی با API (پشتیبانی از reply/forward)
+        window.sendPrivateMessage = async () => {
+            const recipient = document.getElementById('privateRecipient').value;
+            const message = document.getElementById('privateInput').value.trim();
+            console.log('ارسال پیام خصوصی:', { from: username, to: recipient, message, replyTo: replyToMessageId, forwardedFrom: forwardFromMessageId });
+            if (!recipient) return alert('کاربر را انتخاب کنید!');
+            if (!message) return;
+            try {
+                const res = await fetch('/api/message/private', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: username, to: recipient, message, replyTo: replyToMessageId, forwardedFrom: forwardFromMessageId })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام خصوصی');
+                document.getElementById('privateInput').value = '';
+                clearReplyForward();
+                // افزودن پیام ارسالی به تاریخچه سمت خود کاربر
+                const msgObj = {
+                    _id: data.messageId || Date.now().toString(), // اگر سرور id داد، اگر نه یک id موقت
+                    from: username,
+                    to: recipient,
+                    content: message,
+                    type: 'private',
+                    likes: [],
+                    timestamp: new Date().toISOString()
+                };
+                if (!privateChatHistory[recipient]) privateChatHistory[recipient] = [];
+                privateChatHistory[recipient].push(msgObj);
+                showPrivateChatHistory();
+            } catch (err) {
+                alert('خطا در ارسال پیام خصوصی');
+            }
+        };
+        // ارسال پیام گروهی با API (پشتیبانی از reply/forward)
+        window.sendGroupMessage = async () => {
+            const message = document.getElementById('groupInput').value.trim();
+            if (!message) return;
+            try {
+                const res = await fetch('/api/message/group', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from: username, message, replyTo: replyToMessageId, forwardedFrom: forwardFromMessageId })
+                });
+                const data = await res.json();
+                if (!res.ok) return alert(data.error || 'خطا در ارسال پیام گروهی');
+                document.getElementById('groupInput').value = '';
+                clearReplyForward();
+            } catch (err) {
+                alert('خطا در ارسال پیام گروهی');
+            }
+        };
+        // ارسال پیام کانال با API (پشتیبانی از reply/forward)
         window.sendChannelMessage = async () => {
             const message = document.getElementById('channelInput').value.trim();
             if (!message || !currentChannel) return;
@@ -280,29 +372,47 @@
                 const res = await fetch('/api/message/channel', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ from: username, channelName: currentChannel, message })
+                    body: JSON.stringify({ from: username, channelName: currentChannel, message, replyTo: replyToMessageId, forwardedFrom: forwardFromMessageId })
                 });
                 const data = await res.json();
                 if (!res.ok) return alert(data.error || 'خطا در ارسال پیام کانال');
                 document.getElementById('channelInput').value = '';
+                clearReplyForward();
             } catch (err) {
                 alert('خطا در ارسال پیام کانال');
             }
         };
-        // دریافت پیام کانال زنده
-        socket.on('channel-message', data => {
-            if (data.from !== username) {
-                alert(`پیام کانال از ${data.from} (${data.channel}):\n${data.message}`);
+
+        // هنگام دریافت پیام، اگر replyTo یا forwardedFrom داشت، متن پیام اصلی را پیدا کن و به msg اضافه کن
+        function enrichMessage(msg, contextType) {
+            msg._id = msg._id || msg.id || '';
+            msg.from = msg.from || 'نامشخص';
+            msg.message = msg.message || msg.content || '';
+            msg.likes = Array.isArray(msg.likes) ? msg.likes : [];
+            if (msg.replyTo) {
+                let refMsg = null;
+                if (contextType === 'private') {
+                    refMsg = (privateChatHistory[currentRecipient] || []).find(m => (m._id || m.id) === msg.replyTo);
+                } else if (contextType === 'group') {
+                    refMsg = groupChatHistory.find(m => (m._id || m.id) === msg.replyTo);
+                } else if (contextType === 'channel') {
+                    refMsg = (channelChatHistory[currentChannel] || []).find(m => (m._id || m.id) === msg.replyTo);
+                }
+                msg.replyToText = refMsg ? (refMsg.message || refMsg.content) : 'پیام قبلی';
             }
-            if (!channelChatHistory[data.channel]) channelChatHistory[data.channel] = [];
-            channelChatHistory[data.channel].push(
-                `<div class="message ${data.from === username ? 'my-message' : ''}">
-                    <span class="sender">${data.from}:</span>
-                    <div class="text">${data.message}</div>
-                </div>`
-            );
-            if (currentChannel === data.channel) showChannelChatHistory();
-        });
+            if (msg.forwardedFrom) {
+                let refMsg = null;
+                if (contextType === 'private') {
+                    refMsg = (privateChatHistory[currentRecipient] || []).find(m => (m._id || m.id) === msg.forwardedFrom);
+                } else if (contextType === 'group') {
+                    refMsg = groupChatHistory.find(m => (m._id || m.id) === msg.forwardedFrom);
+                } else if (contextType === 'channel') {
+                    refMsg = (channelChatHistory[currentChannel] || []).find(m => (m._id || m.id) === msg.forwardedFrom);
+                }
+                msg.forwardedFromText = refMsg ? (refMsg.message || refMsg.content) : 'پیام قبلی';
+            }
+            return msg;
+        }
 
         // نمایش فرم ساخت کانال و افزودن کاربر فقط برای کاربر A
         function renderChannelAdminPanel() {
@@ -366,6 +476,13 @@
 
         // اتصال اولیه به چت
         socket.emit('join-chat', username);
+
+        // تعریف تابع انتخاب کانال به صورت global
+        window.selectChannel = function(channelName) {
+            currentChannel = channelName;
+            showChannelChatHistory();
+            // اگر لازم است پیام‌های جدید را از سرور بگیریم، اینجا اضافه کنید
+        };
 
         // TODO: مدیریت ساخت کانال و افزودن کاربر به کانال برای کاربر A
         // TODO: نمایش لیست کانال‌ها و انتخاب کانال فعال

@@ -35,7 +35,19 @@ export default function chatSocket(io) {
                         { type: 'channel', to: { $in: userChannels.map(c => c.name) } }
                     ]
                 }).sort({ timestamp: 1 });
-                socket.emit('chat-history', historyMessages);
+                const fixedHistory = historyMessages.map(msg => ({
+                    _id: msg._id?.toString() || '',
+                    from: msg.from || 'نامشخص',
+                    content: msg.content || msg.message || '',
+                    likes: Array.isArray(msg.likes) ? msg.likes : [],
+                    replyTo: msg.replyTo || null,
+                    forwardedFrom: msg.forwardedFrom || null,
+                    type: msg.type || '',
+                    to: msg.to || '',
+                    timestamp: msg.timestamp || '',
+                }));
+                console.log('chat-history to', user.username, fixedHistory);
+                socket.emit('chat-history', fixedHistory);
             } catch (err) {
                 console.error('Error during join-chat:', err);
                 socket.emit('join-error', 'خطا در ورود به چت.');
